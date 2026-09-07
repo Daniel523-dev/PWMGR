@@ -48,4 +48,4 @@ PWMGR relies on the following third-party Python packages:
 * **`cryptography`**: Primitive crypto operations, certificates, asymmetric key support, and AES-GCM.
 * **`argon2-cffi`**: Low-level bindings for Argon2id key derivation.
 * **`blake3`**: BLAKE3 cryptographic hashing.
-* **`numpy`**: Scientific computing utilities.
+* **`numpy`**: Converting strings to bytes quickly.
