@@ -1,0 +1,8 @@
+nuitka
+pyqt6
+pyotp
+zstandard
+zxcvbn
+cryptography
+blake3
+numpy
