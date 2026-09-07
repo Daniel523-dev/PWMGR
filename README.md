@@ -34,3 +34,18 @@ Master password strength is indicated by a progress bar:
 * 🔴 **Red (Rejected)**: Under 10^8 estimated guesses. The application will reject the password.
 * 🔵 **Blue (Prompt)**: Between 10^8 and 10^10 estimated guesses. Allowed, but the app will nudge you each time to move toward a stronger passphrase.
 * 🟢 **Green (Secure)**: 10^10 estimated guesses or higher.
+
+---
+
+## Dependencies & Requirements
+
+PWMGR relies on the following third-party Python packages:
+
+* **`PyQt6`**: Desktop graphical user interface framework.
+* **`pyotp`**: Time-based One-Time Password (TOTP) management.
+* **`zstandard`**: Fast compression library.
+* **`zxcvbn`**: Password strength estimation.
+* **`cryptography`**: Primitive crypto operations, certificates, asymmetric key support, and AES-GCM.
+* **`argon2-cffi`**: Low-level bindings for Argon2id key derivation.
+* **`blake3`**: BLAKE3 cryptographic hashing.
+* **`numpy`**: Scientific computing utilities.
