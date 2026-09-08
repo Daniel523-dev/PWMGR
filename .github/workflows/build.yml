@@ -44,7 +44,7 @@ jobs:
           --windowed `
           --name="PWMGR" `
           --icon="SOURCE/icon.ico" `
-          --add-data "SOURCE/icon.png;SOURCE" `
+          --add-data "SOURCE/icon.png;." `
           --distpath=dist `
           SOURCE/main.py
 
@@ -56,7 +56,7 @@ jobs:
           --onedir \
           --windowed \
           --name="PWMGR" \
-          --add-data "SOURCE/icon.png:SOURCE" \
+          --add-data "SOURCE/icon.png:." \
           --distpath=dist \
           SOURCE/main.py
 
