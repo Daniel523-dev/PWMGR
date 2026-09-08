@@ -1,4 +1,4 @@
-nuitka
+pyinstaller
 pyqt6
 pyotp
 zstandard
