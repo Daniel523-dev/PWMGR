@@ -425,7 +425,11 @@ class TableEditor(QMainWindow):
         self.setCentralWidget(self.view)
         self.model = AccountModel()
         self.view.setModel(self.model)
-        self.view.setItemDelegate(TotpDelegate(self.model, self.view))
+
+        # 1. Create and set delegate
+        self.delegate = TotpDelegate(self.model, self.view)
+        self.view.setItemDelegate(self.delegate)
+
         self.view.setDragEnabled(True)
         self.view.setAcceptDrops(True)
         self.view.setDropIndicatorShown(True)
@@ -437,25 +441,35 @@ class TableEditor(QMainWindow):
 
         header = self.view.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-        for col in range(self.model.columnCount()):self.view.setColumnWidth(col, 180)
+        for col in range(self.model.columnCount()):
+            self.view.setColumnWidth(col, 180)
+
         self.status = self.statusBar()
         self._save_running = False
         self._save_again = False
         self._dirty = False
+
+        # 2. Signal Connections
         self.save_error_signal.connect(self.show_save_error)
         self.view.clicked.connect(self.on_click)
-        self.view.commitData.connect(self._editor_commit_data)
-        self.view.closeEditor.connect(self._editor_closed)
+
+        # Connect to self.delegate instead of self.view
+        self.delegate.commitData.connect(self._editor_commit_data)
+        self.delegate.closeEditor.connect(self._editor_closed)
+
         self.model.data_changed_signal.connect(self.mark_dirty)
+
         self.autosave_timer = QTimer(self)
         self.autosave_timer.setInterval(AUTOSAVE_INTERVAL_MS)
         self.autosave_timer.timeout.connect(self.autosave_tick)
         self.autosave_timer.start()
+
         self.session_timer = QTimer(self)
         self.session_timer.setSingleShot(True)
         self.session_timer.setInterval(SESSION_TIMEOUT_MS)
         self.session_timer.timeout.connect(self.close)
         self.session_timer.start()
+
         threading.Thread(target=self.load_worker, daemon=True).start()
     def _editor_commit_data(self, editor):
         index = self.view.currentIndex()
