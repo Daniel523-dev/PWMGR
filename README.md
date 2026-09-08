@@ -11,24 +11,35 @@ PWMGR is a desktop password manager for Windows and Linux. Built with Qt6, it us
 * **TOTP Support**: Generate and store Time-based One-Time Passwords along with stored entries.
 * **Auto-Hiding Fields**: Passwords and TOTP tokens are hidden by default.
 * **Auto-Save**: Changes save automatically while working and when closing the window.
-* **Zstd Compression**: Compresses data with Zstandard before encryption (and after when it actually reduces file size).
-* **Platform Note**: Demo screenshots showcase Dark mode on both Windows and Linux (KDE). The application UI remains consistent across Linux desktop environments, though window decorations, fonts, and other system-level styling may vary (e.g., KDE, GNOME, Xfce).
+* **Zstd Compression**: Compresses data with Zstandard before encryption (and after when it is able to reduce file size).
+> **Platform Note**: Demo screenshots showcase Dark mode on both Windows and Linux (KDE). The application UI remains consistent across Linux desktop environments, though window decorations, fonts, and other system-level styling may vary (e.g., KDE, GNOME, Xfce).
+
+---
+
+## Startup Flow
+
+When PWMGR starts, it will first open a file selector where you can create a new `.pwmgr1` file or load an existing one.
+
+After selecting the vault file, PWMGR will prompt you for the **master password**. At this stage, you can either enter the existing password and click **Unlock**, or change the password before unlocking.
+
+Once the vault is unlocked, the main password manager window will open.
 
 ---
 
 ## Security & Cryptography
 
-* **Key Derivation**: Argon2id (`time_cost=13`, `memory_cost=524288` / ~512 MB, `parallelism=1`).
-* **Encryption**: AES-GCM.
-* **Integrity**: BLAKE3 and Ed25519 signatures.
+* **Key Derivation**: Argon2id (`time_cost=13`, `memory_cost=524288` / ~512 MB, `parallelism=1`) derives the master key from the master password.
+* **Key Normalization**: BLAKE3 is used to derive a AES key from the Argon2id-derived key, ensuring a consistent key length for AES-GCM.
+* **Encryption**: AES-GCM is used to encrypt the vault data with the derived single-use key.
+* **Integrity & Signatures**: Ed25519 signatures are used to provide cryptographic authenticity and integrity verification.
 
-> **Vault Load Time**: Because of the high Argon2id parameters, expects around a 5-second delay between the main window opening and the vault finishing loading. This depends on your hardware and is expected behavior.
+> **Vault Load Time**: Because of the high Argon2id parameters, expect around a 5-second delay between the main window opening and the vault finishing loading. This depends on your hardware and is expected behavior.
 
 ---
 
 ## Master Password Security
 
-PWMGR uses **zxcvbn** to enforce strength constraints on your **master password**. 
+PWMGR uses **zxcvbn** to enforce strength constraints on your **master password**.
 
 Master password strength is indicated by a progress bar:
 
