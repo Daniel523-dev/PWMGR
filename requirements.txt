@@ -6,3 +6,4 @@ zxcvbn
 cryptography
 blake3
 numpy
+argon2-cffi
