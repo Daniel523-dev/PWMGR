@@ -1,5 +1,17 @@
 # PWMGR
 
+## Security Review Welcome
+
+PWMGR is open source under GPL-3.0, and security review is encouraged.
+
+If you find a bug, cryptographic weakness, unsafe assumption, or implementation
+issue, please open an issue or submit a pull request. Breaking the application
+is welcome — that's how it gets better.
+
+PWMGR has not undergone a professional third-party security audit. Do not rely
+on it for critical credentials until you have independently reviewed the code
+and understand its security model.
+
 PWMGR is a desktop password manager for Windows and Linux. Built with Qt6, it uses modern cryptography, zstd compression, and password quality checks on your master key.
 
 ---
