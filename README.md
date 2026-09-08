@@ -7,11 +7,12 @@ PWMGR is a desktop password manager for Windows and Linux. Built with Qt6, it us
 ## Features
 
 * **Cross-Platform**: Runs on Windows and Linux.
-* **Qt6 GUI**: Simple desktop interface.
+* **Qt6 GUI**: A simple desktop interface with clean support for both Light and Dark modes.
 * **TOTP Support**: Generate and store Time-based One-Time Passwords along with stored entries.
 * **Auto-Hiding Fields**: Passwords and TOTP tokens are hidden by default and automatically hide again 30 seconds after being revealed.
 * **Auto-Save**: Changes save automatically while working and when closing the window.
 * **Zstd Compression**: Compresses data with Zstandard before encryption (and after when it actually reduces file size).
+* **Platform Note**: Demo screenshots showcase Dark mode on both Windows and Linux (KDE). The application UI remains consistent across Linux desktop environments, though window decorations, fonts, and other system-level styling may vary (e.g., KDE, GNOME, Xfce).
 
 ---
 
