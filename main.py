@@ -502,7 +502,7 @@ class TableEditor(QMainWindow):
         settings_layout.addLayout(kdf_scale)
         settings_layout.addWidget(self.kdf_value)
 
-        self.kdf_calibrate_button = QPushButton("Calibrate Hardware")
+        self.kdf_calibrate_button = QPushButton("Calibrate to Hardware")
         self.kdf_calibrate_button.clicked.connect(self.calibrate_hardware)
         settings_layout.addWidget(self.kdf_calibrate_button)
 
@@ -557,11 +557,13 @@ class TableEditor(QMainWindow):
         self.session_timer = QTimer(self)
         self.session_timer.setSingleShot(True)
         self.session_timer.setInterval(SESSION_TIMEOUT_MS)
-        self.session_timer.timeout.connect(self.close)
+        self.session_timer.timeout.connect(self._close)
         self.session_timer.start()
 
         threading.Thread(target=self.load_worker,daemon=True).start()
-
+    def _close(self):
+        while self._kdf_calibrating:time.sleep(1)
+        self.close()
     def kdf_value_changed(self,value):
         if self._kdf_times:
             target=value/100
@@ -569,7 +571,6 @@ class TableEditor(QMainWindow):
             self.kdf_value.setText(f"{target:.2f} s → Level {level}")
         else:
             self.kdf_value.setText(f"Level {value}")
-
     def calibrate_hardware(self):
         if self._kdf_calibrating or self._kdf_save_running:return
 
@@ -577,7 +578,8 @@ class TableEditor(QMainWindow):
             reply=QMessageBox.question(
                 self,
                 "Hardware Calibration",
-                "A hardware calibration already exists.\n\nLoad the existing calibration?",
+                "A hardware calibration already exists.\n\n"
+                "Load the existing calibration?",
                 QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.Yes
             )
@@ -601,6 +603,19 @@ class TableEditor(QMainWindow):
                         f"Could not load the calibration:\n\n{e}"
                     )
 
+        reply=QMessageBox.warning(
+            self,
+            "Hardware Calibration",
+            "Calibrate to Hardware will consume several GB of RAM and "
+            "heavily stress the CPU while it is running.\n\n"
+            "Close unnecessary applications before continuing.\n\n"
+            "The calibration may take several minutes.",
+            QMessageBox.StandardButton.Ok|QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel
+        )
+
+        if reply!=QMessageBox.StandardButton.Ok:return
+
         self._kdf_calibrating=True
         self.kdf_calibrate_button.setEnabled(False)
         self.kdf_save_button.setEnabled(False)
@@ -623,7 +638,6 @@ class TableEditor(QMainWindow):
         except Exception as e:
             self.save_error_signal.emit(str(e))
             self.kdf_calibrate_done_signal.emit({})
-
     def calibration_finished(self,times):
         self._kdf_calibrating=False
 
