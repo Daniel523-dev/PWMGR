@@ -55,8 +55,8 @@ def load():
     try:
         salt=base64.b64decode(container["salt"])
         data=Encryption.decryptGCM(encrypted_data, Encryption.kdf_slow(util.str_to_bytes(MASTER_PW),salt))
-    except:
-        traceback.print_exc()
+    except Exception as e:
+        traceback.print_exception(e)
         show_message(None,"INCORRECT PASSWORD","Failed to decrypt",True)
         EXIT("INCORRECT PASSWORD")
     try:data=zstd.decompress(data)
