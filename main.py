@@ -1,6 +1,6 @@
 import Encryption, base64, os, pathlib, sys, json, util, csv, io, threading, pyotp, zstandard as zstd, time, traceback
-from PyQt6.QtWidgets import QApplication, QFileDialog, QMainWindow, QTableView, QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QInputDialog, QHeaderView, QProgressBar, QStyledItemDelegate, QTabWidget, QWidget, QSlider, QHBoxLayout
-from PyQt6.QtCore import pyqtSignal, QAbstractTableModel, Qt, QModelIndex, QTimer, QMimeData
+from PyQt6.QtWidgets import QApplication, QFileDialog, QMainWindow, QTableView, QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QInputDialog, QHeaderView, QProgressBar, QStyledItemDelegate, QTabWidget, QWidget, QSlider, QHBoxLayout, QDialogButtonBox
+from PyQt6.QtCore import pyqtSignal, QAbstractTableModel, Qt, QModelIndex, QTimer, QMimeData, QObject, QThread
 from PyQt6.QtGui import QFont, QIcon
 from zxcvbn import zxcvbn
 app=QApplication(sys.argv)
@@ -79,15 +79,16 @@ def load():
         EXIT("MALFORMED SAVE DATA")
 def calibrate_to_hardware():
     results=[]
-    for _ in range(10):
+    start=time.time()
+    while time.time()-start<60*20:
         results.append([])
-        pw=os.urandom(512)
-        salt=os.urandom(512)
+        pw=os.urandom(256)
+        salt=os.urandom(256)
         t1=time.perf_counter()
         Encryption.kdf(pw,salt,0)
         t2=time.perf_counter()
         lvl=0
-        while t2-t1<30:
+        while (t2-t1)<30:
             lvl+=1
             t1=time.perf_counter()
             Encryption.kdf(pw,salt,lvl)
@@ -97,8 +98,6 @@ def calibrate_to_hardware():
     for r in results:
         for lvl,t in enumerate(r,1):_.setdefault(lvl,[]).append(t)
     return {lvl:sum(t)/len(t) for lvl,t in _.items()}
-
-
 class LoginDialog(QDialog):
     def __init__(self):
         super().__init__()
@@ -151,59 +150,94 @@ login = LoginDialog()
 if login.exec() != QDialog.DialogCode.Accepted:EXIT()
 MASTER_PW = login.get_password()
 check=True
-if getattr(login, "_change_requested", False):
-    data = load()
-    new_pw, ok = QInputDialog.getText(None, "Change Password", "Enter NEW master password:", QLineEdit.EchoMode.Password)
-    if not ok or not new_pw:
-        EXIT("Cancelled")
-    MASTER_PW = new_pw
-    result = zxcvbn(MASTER_PW)
-    log_guesses = result["guesses_log10"]
-    warnings = []
-    suggestions = []
-    if log_guesses < 10.0:
-        warnings.append("A more secure password is advised (requires 10^10 guesses for max security).")
-    if result["feedback"]["warning"]:
-        warnings.append(result["feedback"]["warning"])
-    suggestions = result["feedback"]["suggestions"]
-    if len(warnings) + len(suggestions) > 0:
-        msg = QMessageBox()
+
+if getattr(login,"_change_requested",False):
+
+    data=load()
+
+    dialog=QDialog()
+    dialog.setWindowTitle("Change Password")
+
+    layout=QVBoxLayout(dialog)
+
+    layout.addWidget(QLabel("Enter NEW master password:"))
+
+    password=QLineEdit()
+    password.setEchoMode(QLineEdit.EchoMode.Password)
+    layout.addWidget(password)
+
+    strength=QProgressBar()
+    strength.setRange(0,1000)
+    strength.setTextVisible(False)
+    strength.setValue(0)
+    layout.addWidget(strength)
+    buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel)
+    layout.addWidget(buttons)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    def update_strength():
+        try:
+            result=zxcvbn(password.text())
+            guesses=result["guesses_log10"]
+            min_blue=8.0
+            max_blue=10.0
+            if guesses<min_blue:
+                progress=(guesses/min_blue)*500
+                color="red"
+            elif guesses<max_blue:
+                progress=500+((guesses-min_blue)/(max_blue-min_blue))*500
+                color="#64C4FF"
+            else:
+                progress=1000
+                color="green"
+            progress=max(0,min(1000,progress))
+            strength.setValue(int(progress))
+            strength.setStyleSheet(f"QProgressBar::chunk {{background-color: {color};}}")
+        except Exception:strength.setValue(0)
+    password.textChanged.connect(update_strength)
+    if dialog.exec()!=QDialog.DialogCode.Accepted:EXIT("Cancelled")
+    new_pw=password.text()
+    if not new_pw:EXIT("Cancelled")
+    MASTER_PW=new_pw
+    result=zxcvbn(MASTER_PW)
+    log_guesses=result["guesses_log10"]
+    warnings=[]
+    suggestions=[]
+    if log_guesses<10.0:warnings.append("A more secure password is advised\n(requires 10^10 guesses for max security).")
+    if result["feedback"]["warning"]:warnings.append(result["feedback"]["warning"])
+    suggestions=result["feedback"]["suggestions"]
+    if len(warnings)+len(suggestions)>0:
+        msg=QMessageBox()
         msg.setWindowTitle("Password Strength Report")
-        text = f"Score: {result['score']}/4\nLog10 Guesses: {log_guesses:.2f}\n\n"
-        if warnings:
-            text += "Warnings:\n" + "\n".join(warnings) + "\n\n"
-        if suggestions:
-            text += "Suggestions:\n" + "\n".join(suggestions)
+        text=f"Score: {result['score']}/4\n\nLog10 Guesses: {log_guesses:.2f}\n\n"
+        if warnings:text+="Warnings:\n"+"\n".join(warnings)+"\n\n"
+        if suggestions:text+="Suggestions:\n"+"\n".join(suggestions)
         msg.setText(text)
         msg.exec()
-    if log_guesses < 8.0:
-        show_message(None,"Insecure Password","Password rejected: it does not provide sufficient security. A strong password should require at least 10⁸ guesses to crack.",True)
+    if log_guesses<8.0:
+        show_message(None,"Insecure Password","Password rejected: it does not provide sufficient security. \nA strong password should require at least 10⁸ guesses to crack.",True)
         EXIT("Insecure Password: Requires at least 10^8 guesses.")
-        check = False
+        check=False
     save(data)
-    QMessageBox.information(None, "Success", "Password changed successfully")
+    QMessageBox.information(None,"Success","Password changed successfully")
 if check:
-    result = zxcvbn(MASTER_PW)
-    log_guesses = result["guesses_log10"]
-    warnings = []
-    suggestions = []
-    if log_guesses < 10.0:
-        warnings.append("A more secure password is advised.")
-    if result["feedback"]["warning"]:
-        warnings.append(result["feedback"]["warning"])
-    suggestions = result["feedback"]["suggestions"]
-    if len(warnings) + len(suggestions) > 0:
-        msg = QMessageBox()
+    result=zxcvbn(MASTER_PW)
+    log_guesses=result["guesses_log10"]
+    warnings=[]
+    suggestions=[]
+    if log_guesses<10.0:warnings.append("A more secure password is advised.")
+    if result["feedback"]["warning"]:warnings.append(result["feedback"]["warning"])
+    suggestions=result["feedback"]["suggestions"]
+    if len(warnings)+len(suggestions)>0:
+        msg=QMessageBox()
         msg.setWindowTitle("Password Strength Report")
-        text = f"Score: {result['score']}/4\nLog10 Guesses: {log_guesses:.2f}\n\n"
-        if warnings:
-            text += "Warnings:\n" + "\n".join(warnings) + "\n\n"
-        if suggestions:
-            text += "Suggestions:\n" + "\n".join(suggestions)
+        text=f"Score: {result['score']}/4\n\nLog10 Guesses: {log_guesses:.2f}\n\n"
+        if warnings:text+="Warnings:\n"+"\n".join(warnings)+"\n\n"
+        if suggestions:text+="Suggestions:\n"+"\n".join(suggestions)
         msg.setText(text)
         msg.exec()
-    if log_guesses < 8.0:
-        show_message(None,"Insecure Password","Password rejected: it does not provide sufficient security. A strong password should require at least 10⁸ guesses to crack.",True)
+    if log_guesses<8.0:
+        show_message(None,"Insecure Password","Password rejected: it does not provide sufficient security. \nA strong password should require at least 10⁸ guesses to crack.",True)
         EXIT("Insecure Password: Requires at least 10^8 guesses.")
 class TotpDelegate(QStyledItemDelegate):
     def __init__(self, model, parent=None):
@@ -226,7 +260,6 @@ class AccountModel(QAbstractTableModel):
     PASSWORD_VISIBLE_MS = 30_000
     TOTP_REFRESH_MS = 1_000
     DRAG_MIME = "application/x-pwmgr-row"
-
     def __init__(self, data=None):
         super().__init__()
         self._data = data or []
@@ -244,124 +277,69 @@ class AccountModel(QAbstractTableModel):
         LAST_ACTIVE=time.time()
     def begin_totp_edit(self, row):
         self.active()
-        if 0 <= row < len(self._data):
-            self._totp_editing_rows.add(row)
-
+        if 0 <= row < len(self._data):self._totp_editing_rows.add(row)
     def end_totp_edit(self, row):
         self.active()
         self._totp_editing_rows.discard(row)
         if 0 <= row < len(self._data):
             index = self.index(row, self.TOTP_COL)
             self.dataChanged.emit(index, index)
-
-    def rowCount(self, parent=QModelIndex()):
-        return len(self._data) + 1
-
-    def columnCount(self, parent=QModelIndex()):
-        return len(self.HEADERS)
-
-    def headerData(self, section, orientation, role):
-        return self.HEADERS[section] if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal else None
-
+    def rowCount(self, parent=QModelIndex()):return len(self._data) + 1
+    def columnCount(self, parent=QModelIndex()):return len(self.HEADERS)
+    def headerData(self, section, orientation, role):return self.HEADERS[section] if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal else None
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid():
-            return None
-
+        if not index.isValid():return None
         row, col = index.row(), index.column()
-
-        if row >= len(self._data):
-            return "" if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole) else None
-
+        if row >= len(self._data):return "" if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole) else None
         value = self._data[row][col]
-
-        if role == Qt.ItemDataRole.EditRole:
-            return 'Type "delete" 3 times' if col == self.TOTP_COL and value else value
-
-        if role != Qt.ItemDataRole.DisplayRole:
-            return None
-
-        if col == self.PASSWORD_COL:
-            return value if self._visible[row] else "*****"
-
+        if role == Qt.ItemDataRole.EditRole:return 'Type "delete" 3 times' if col == self.TOTP_COL and value else value
+        if role != Qt.ItemDataRole.DisplayRole:return None
+        if col == self.PASSWORD_COL:return value if self._visible[row] else "*****"
         if col == self.TOTP_COL:
-            if not self._totp_visible[row]:
-                return "*****"
-            try:
-                return pyotp.TOTP(value).now() if value else "*****"
-            except Exception:
-                return "*****"
-
+            if not self._totp_visible[row]:return "*****"
+            try:return pyotp.TOTP(value).now() if value else "*****"
+            except Exception:return "*****"
         return value
-
     def flags(self, index):
         flags = Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable | Qt.ItemFlag.ItemIsDropEnabled
-        if index.isValid() and index.row() < len(self._data):
-            flags |= Qt.ItemFlag.ItemIsDragEnabled
+        if index.isValid() and index.row() < len(self._data):flags |= Qt.ItemFlag.ItemIsDragEnabled
         return flags
-
-    def supportedDropActions(self):
-        return Qt.DropAction.MoveAction
-
-    def supportedDragActions(self):
-        return Qt.DropAction.MoveAction
-
-    def mimeTypes(self):
-        return [self.DRAG_MIME]
-
+    def supportedDropActions(self):return Qt.DropAction.MoveAction
+    def supportedDragActions(self):return Qt.DropAction.MoveAction
+    def mimeTypes(self):return [self.DRAG_MIME]
     def mimeData(self, indexes):
         mime = QMimeData()
         rows = {i.row() for i in indexes if i.isValid() and i.row() < len(self._data)}
-        if len(rows) == 1:
-            mime.setData(self.DRAG_MIME, str(next(iter(rows))).encode())
+        if len(rows) == 1:mime.setData(self.DRAG_MIME, str(next(iter(rows))).encode())
         return mime
-
     def dropMimeData(self, data, action, row, column, parent):
         self.active()
-        if action != Qt.DropAction.MoveAction or not data.hasFormat(self.DRAG_MIME):
-            return False
-
-        try:
-            src = int(bytes(data.data(self.DRAG_MIME)).decode())
-        except (ValueError, UnicodeDecodeError):
-            return False
-
+        if action != Qt.DropAction.MoveAction or not data.hasFormat(self.DRAG_MIME):return False
+        try:src = int(bytes(data.data(self.DRAG_MIME)).decode())
+        except (ValueError, UnicodeDecodeError):return False
         dst = parent.row() if row < 0 and parent.isValid() else row
-        if dst < 0:
-            dst = len(self._data)
-        if src == dst:
-            return False
-
+        if dst < 0:dst = len(self._data)
+        if src == dst:return False
         item = self._data.pop(src)
         visible = self._visible.pop(src)
         totp_visible = self._totp_visible.pop(src)
         timer = self._hide_timers.pop(src)
-
         was_editing = src in self._totp_editing_rows
         self._totp_editing_rows.discard(src)
-
-        if dst > src:
-            dst -= 1
+        if dst > src:dst -= 1
         dst = max(0, min(dst, len(self._data)))
-
         self._data.insert(dst, item)
         self._visible.insert(dst, visible)
         self._totp_visible.insert(dst, totp_visible)
         self._hide_timers.insert(dst, timer)
-
-        if was_editing:
-            self._totp_editing_rows.add(dst)
-
+        if was_editing:self._totp_editing_rows.add(dst)
         self.layoutChanged.emit()
         self.data_changed_signal.emit()
         return True
-
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
         self.active()
-        if not index.isValid() or role != Qt.ItemDataRole.EditRole:
-            return False
-
+        if not index.isValid() or role != Qt.ItemDataRole.EditRole:return False
         row, col = index.row(), index.column()
-
         if row >= len(self._data):
             self.beginInsertRows(QModelIndex(), len(self._data), len(self._data))
             self._data.append([""] * 5)
@@ -369,25 +347,20 @@ class AccountModel(QAbstractTableModel):
             self._totp_visible.append(False)
             self._hide_timers.append(None)
             self.endInsertRows()
-
         if col == self.TOTP_COL and self._data[row][col]:
             if value.lower().count("delete") < 3:
                 self.dataChanged.emit(index, index)
                 return False
             self._data[row][col] = ""
-        else:
-            self._data[row][col] = value
-
+        else:self._data[row][col] = value
         self.dataChanged.emit(index, index)
         self.data_changed_signal.emit()
         return True
-
     def set_data(self, data):
         self.active()
         self.beginResetModel()
         for timer in self._hide_timers:
-            if timer is not None:
-                timer.stop()
+            if timer is not None:timer.stop()
         n = len(data)
         self._data = data
         self._visible = [False] * n
@@ -396,10 +369,7 @@ class AccountModel(QAbstractTableModel):
         self._totp_editing_rows.clear()
         self.endResetModel()
         self.data_changed_signal.emit()
-
-    def get_data(self):
-        return self._data
-
+    def get_data(self):return self._data
     def toggle_password(self, row):
         self.active()
         try:
@@ -408,11 +378,9 @@ class AccountModel(QAbstractTableModel):
                 timer.stop()
                 timer.deleteLater()
                 self._hide_timers[row] = None
-
             self._visible[row] = not self._visible[row]
             index = self.index(row, self.PASSWORD_COL)
             self.dataChanged.emit(index, index)
-
             if self._visible[row]:
                 timer = QTimer(self)
                 timer.setSingleShot(True)
@@ -420,104 +388,117 @@ class AccountModel(QAbstractTableModel):
                 timer.timeout.connect(lambda r=row: self._auto_hide_password(r))
                 timer.start()
                 self._hide_timers[row] = timer
-        except (IndexError, RuntimeError):
-            pass
-
+        except (IndexError, RuntimeError):pass
     def _auto_hide_password(self, row):
         try:
             self._visible[row] = False
             self._hide_timers[row] = None
             index = self.index(row, self.PASSWORD_COL)
             self.dataChanged.emit(index, index)
-        except (IndexError, RuntimeError):
-            pass
-
+        except (IndexError, RuntimeError):pass
     def toggle_totp(self, row):
         self.active()
         try:
             self._totp_visible[row] = not self._totp_visible[row]
             index = self.index(row, self.TOTP_COL)
             self.dataChanged.emit(index, index)
-        except (IndexError, RuntimeError):
-            pass
-
+        except (IndexError, RuntimeError):pass
     def _refresh_visible_totps(self):
-        if not any(self._totp_visible):
-            return
-
+        if not any(self._totp_visible):return
         for row, visible in enumerate(self._totp_visible):
             if visible and row not in self._totp_editing_rows:
                 index = self.index(row, self.TOTP_COL)
                 self.dataChanged.emit(index, index)
+class ChangePasswordWorker(QObject):
+    finished = pyqtSignal(bool,str)
+    strength = pyqtSignal(dict)
+    error = pyqtSignal(str)
+    def __init__(self,new_pw):
+        super().__init__()
+        self.new_pw=new_pw
+    def run(self):
+        global MASTER_PW
+        old_pw=MASTER_PW
+        try:
+            result=zxcvbn(self.new_pw)
+            self.strength.emit(result)
+            if result["guesses_log10"]<8.0:
+                self.finished.emit(False,"Password rejected: it does not provide sufficient security.\n\nA strong password should require at least 10⁸ guesses to crack.")
+                return
+            data=load()
+            MASTER_PW=self.new_pw
+            try:save(data)
+            except Exception:
+                MASTER_PW=old_pw
+                raise
+            self.finished.emit(True,"Password changed successfully")
+        except Exception as e:
+            MASTER_PW=old_pw
+            self.error.emit(str(e))
+            self.finished.emit(False,"")
 AUTOSAVE_INTERVAL_MS = 45 * 1000
 SESSION_TIMEOUT_MS = 5 * 60 * 1000
 class TableEditor(QMainWindow):
     save_error_signal = pyqtSignal(str)
     kdf_calibrate_done_signal = pyqtSignal(dict)
     kdf_save_done_signal = pyqtSignal()
-
+    change_password_done_signal = pyqtSignal(bool,str)
+    change_password_strength_signal = pyqtSignal(dict)
+    change_password_error_signal = pyqtSignal(str)
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Password Manager")
-
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
-
         self.password_manager_tab = QWidget()
         self.settings_tab = QWidget()
-
         self.tabs.addTab(self.password_manager_tab,"Password Manager")
         self.tabs.addTab(self.settings_tab,"Settings")
-
         self.view = QTableView()
         password_manager_layout = QVBoxLayout(self.password_manager_tab)
         password_manager_layout.setContentsMargins(0,0,0,0)
         password_manager_layout.addWidget(self.view)
-
         settings_layout = QVBoxLayout(self.settings_tab)
-
         kdf_label = QLabel("KDF Level")
-
         self.kdf_slider = QSlider(Qt.Orientation.Horizontal)
         self.kdf_slider.setMinimum(0)
         self.kdf_slider.setMaximum(50)
         self.kdf_slider.setValue(max(0,min(50,KDF_LEVEL)))
         self.kdf_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.kdf_slider.setTickInterval(1)
-
         self.kdf_value = QLabel(f"Level {KDF_LEVEL}")
         self.kdf_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
         self.kdf_slider.valueChanged.connect(self.kdf_value_changed)
-
         kdf_scale = QHBoxLayout()
         self.kdf_min_label = QLabel("0")
         self.kdf_max_label = QLabel("50")
         kdf_scale.addWidget(self.kdf_min_label)
         kdf_scale.addStretch()
         kdf_scale.addWidget(self.kdf_max_label)
-
         settings_layout.addWidget(kdf_label)
         settings_layout.addWidget(self.kdf_slider)
         settings_layout.addLayout(kdf_scale)
         settings_layout.addWidget(self.kdf_value)
-
         self.kdf_calibrate_button = QPushButton("Calibrate to Hardware")
         self.kdf_calibrate_button.clicked.connect(self.calibrate_hardware)
         settings_layout.addWidget(self.kdf_calibrate_button)
-
         self.kdf_save_button = QPushButton("Save KDF Level")
         self.kdf_save_button.clicked.connect(self.save_kdf_level)
+        self.master_password_button = QPushButton("Change Master Password")
+        self._password_thread=None
+        self._password_worker=None
+        self._password_changing=False
+        self.change_password_done_signal.connect(self.change_password_finished)
+        self.change_password_strength_signal.connect(self.change_password_strength)
+        self.change_password_error_signal.connect(self.show_save_error)
+        self.master_password_button.clicked.connect(self.change_master_password)
         settings_layout.addWidget(self.kdf_save_button)
-
+        settings_layout.addWidget(self.master_password_button)
         settings_layout.addStretch()
-
         self.model = AccountModel()
         self.view.setModel(self.model)
-
         self.delegate = TotpDelegate(self.model,self.view)
         self.view.setItemDelegate(self.delegate)
-
         self.view.setDragEnabled(True)
         self.view.setAcceptDrops(True)
         self.view.setDropIndicatorShown(True)
@@ -526,11 +507,9 @@ class TableEditor(QMainWindow):
         self.view.setDragDropOverwriteMode(False)
         self.view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.view.setSelectionMode(QTableView.SelectionMode.SingleSelection)
-
         header = self.view.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         for col in range(self.model.columnCount()):self.view.setColumnWidth(col,180)
-
         self.status = self.statusBar()
         self._save_running = False
         self._save_again = False
@@ -539,280 +518,248 @@ class TableEditor(QMainWindow):
         self._kdf_calibrating = False
         self._kdf_times = {}
         self._calibration_file = os.path.expanduser("~/.pwmgr_hardware_calibration")
-
         self.save_error_signal.connect(self.show_save_error)
         self.kdf_calibrate_done_signal.connect(self.calibration_finished)
         self.kdf_save_done_signal.connect(self.kdf_save_finished)
-
         self.view.clicked.connect(self.on_click)
         self.delegate.commitData.connect(self._editor_commit_data)
         self.delegate.closeEditor.connect(self._editor_closed)
         self.model.data_changed_signal.connect(self.mark_dirty)
-
         self.autosave_timer = QTimer(self)
         self.autosave_timer.setInterval(AUTOSAVE_INTERVAL_MS)
         self.autosave_timer.timeout.connect(self.autosave_tick)
         self.autosave_timer.start()
-
         self.session_timer = QTimer(self)
         self.session_timer.setSingleShot(True)
         self.session_timer.setInterval(SESSION_TIMEOUT_MS)
         self.session_timer.timeout.connect(self.close)
         self.session_timer.start()
-
         threading.Thread(target=self.load_worker,daemon=True).start()
+    def change_master_password(self):
+        if self._password_changing or self._kdf_calibrating or self._kdf_save_running:return
+        dialog=QDialog(self)
+        dialog.setWindowTitle("Change Master Password")
+        layout=QVBoxLayout(dialog)
+        layout.addWidget(QLabel("New Master Password:"))
+        password=QLineEdit()
+        password.setEchoMode(QLineEdit.EchoMode.Password)
+        layout.addWidget(password)
+        strength=QProgressBar()
+        strength.setRange(0,1000)
+        strength.setTextVisible(False)
+        strength.setValue(0)
+        layout.addWidget(strength)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        layout.addWidget(buttons)
+        def update_strength():
+            try:
+                result=zxcvbn(password.text())
+                guesses=result["guesses_log10"]
+                if guesses<8.0:
+                    progress=(guesses/8.0)*500
+                    color="red"
+                elif guesses<10.0:
+                    progress=500+((guesses-8.0)/2.0)*500
+                    color="#64C4FF"
+                else:
+                    progress=1000
+                    color="green"
+                progress=max(0,min(1000,progress))
+                strength.setValue(int(progress))
+                strength.setStyleSheet(f"QProgressBar::chunk {{background-color: {color};}}")
+            except Exception:strength.setValue(0)
+        password.textChanged.connect(update_strength)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return
+        new_pw=password.text()
+        if not new_pw:
+            show_message(self,"Password Error","The new password cannot be empty.")
+            return
+        self._password_changing=True
+        self.autosave_timer.stop()
+        self.session_timer.stop()
+        self.master_password_button.setEnabled(False)
+        self.kdf_save_button.setEnabled(False)
+        self.kdf_calibrate_button.setEnabled(False)
+        self.status.showMessage("Changing master password...")
+        self.setWindowTitle("Password Manager (Changing Password...)")
+        self._password_thread=QThread(self)
+        self._password_worker=ChangePasswordWorker(new_pw)
+        self._password_worker.moveToThread(self._password_thread)
+        self._password_thread.started.connect(self._password_worker.run)
+        self._password_worker.strength.connect(self.change_password_strength_signal.emit)
+        self._password_worker.finished.connect(self.change_password_done_signal.emit)
+        self._password_worker.error.connect(self.change_password_error_signal.emit)
+        self._password_worker.finished.connect(self._password_thread.quit)
+        self._password_worker.finished.connect(self._password_worker.deleteLater)
+        self._password_thread.finished.connect(self._password_thread.deleteLater)
+        self._password_thread.finished.connect(self.change_password_thread_finished)
+        self._password_thread.start()
+    def change_password_strength(self,result):pass
+    def change_password_finished(self,success,message):
+        if not success:
+            if message:show_message(self,"Password Error",message)
+            return
+        show_message(self,"Password Changed",message)
+    def change_password_thread_finished(self):
+        self._password_worker=None
+        self._password_thread=None
+        self._password_changing=False
+        self.master_password_button.setEnabled(True)
+        self.kdf_save_button.setEnabled(True)
+        self.kdf_calibrate_button.setEnabled(True)
+        self.status.clearMessage()
+        self.setWindowTitle("Password Manager")
+        self.autosave_timer.start()
+        self.session_timer.start()
     def kdf_value_changed(self,value):
         if self._kdf_times:
             target=value/100
             level=min(self._kdf_times,key=lambda lvl:abs(self._kdf_times[lvl]-target))
             self.kdf_value.setText(f"{target:.2f} s → Level {level}")
-        else:
-            self.kdf_value.setText(f"Level {value}")
+        else:self.kdf_value.setText(f"Level {value}")
     def calibrate_hardware(self):
         if self._kdf_calibrating or self._kdf_save_running:return
-
         if os.path.isfile(self._calibration_file):
-            reply=QMessageBox.question(
-                self,
-                "Hardware Calibration",
-                "A hardware calibration already exists.\n\n"
-                "Load the existing calibration?",
-                QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes
-            )
-
+            reply=QMessageBox.question(self,"Hardware Calibration","A hardware calibration already exists.\n\nLoad the existing calibration?",QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.Yes)
             if reply==QMessageBox.StandardButton.Yes:
                 try:
-                    with open(self._calibration_file,"r") as f:
-                        times=json.load(f)
-
+                    with open(self._calibration_file,"r") as f:times=json.load(f)
                     times={int(lvl):float(t) for lvl,t in times.items()}
-
-                    if not times:
-                        raise ValueError("Calibration file is empty")
-
+                    if not times:raise ValueError("Calibration file is empty")
                     self.calibration_finished(times)
                     return
-                except Exception as e:
-                    show_message(
-                        self,
-                        "Calibration Error",
-                        f"Could not load the calibration:\n\n{e}"
-                    )
-
-        reply=QMessageBox.warning(
-            self,
-            "Hardware Calibration",
-            "Calibrate to Hardware will consume several GB of RAM and "
-            "heavily stress the CPU while it is running.\n\n"
-            "Close unnecessary applications before continuing.\n\n"
-            "The calibration may take several minutes.",
-            QMessageBox.StandardButton.Ok|QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel
-        )
-
+                except Exception as e:show_message(self,"Calibration Error",f"Could not load the calibration:\n\n{e}")
+        reply=QMessageBox.warning(self,"Hardware Calibration","Calibrate to Hardware will consume several GB of RAM and \nheavily stress the CPU while it is running.\n\nClose unnecessary applications before continuing.\n\nThe calibration will take 20 minutes.",QMessageBox.StandardButton.Ok|QMessageBox.StandardButton.Cancel,QMessageBox.StandardButton.Cancel)
         if reply!=QMessageBox.StandardButton.Ok:return
-
         self._kdf_calibrating=True
-
-        # Disable inactivity/session timeouts during calibration.
         self.autosave_timer.stop()
         self.session_timer.stop()
-
         self.kdf_calibrate_button.setEnabled(False)
         self.kdf_save_button.setEnabled(False)
         self.status.showMessage("Calibrating KDF...")
         self.setWindowTitle("Password Manager (Calibrating...)")
-
-        threading.Thread(
-            target=self.calibrate_worker,
-            daemon=True
-        ).start()
-
+        threading.Thread(target=self.calibrate_worker,daemon=True).start()
     def calibration_finished(self,times):
         self._kdf_calibrating=False
-
         if times:
             self._kdf_times=times
-
             self.kdf_slider.setMinimum(0)
             self.kdf_slider.setMaximum(3000)
             self.kdf_slider.setTickInterval(100)
-
             self.kdf_min_label.setText("0.00 s")
             self.kdf_max_label.setText("30.00 s")
-
             self.kdf_slider.setValue(0)
             self.kdf_value_changed(0)
-
             self.kdf_save_button.setEnabled(True)
-
         self.kdf_calibrate_button.setEnabled(True)
         self.status.clearMessage()
         self.setWindowTitle("Password Manager")
-
-        # Restart inactivity/session timers after calibration.
         self.autosave_timer.start()
         self.session_timer.start()
     def calibrate_worker(self):
         try:
             times=calibrate_to_hardware()
-
-            with open(self._calibration_file,"w") as f:
-                json.dump(times,f)
-
+            with open(self._calibration_file,"w") as f:json.dump(times,f)
             self.kdf_calibrate_done_signal.emit(times)
         except Exception as e:
             self.save_error_signal.emit(str(e))
             self.kdf_calibrate_done_signal.emit({})
-
     def save_kdf_level(self):
         if self._kdf_save_running or self._kdf_calibrating:return
-
         if self._kdf_times:
             target=self.kdf_slider.value()/100
-            level=min(
-                self._kdf_times,
-                key=lambda lvl:abs(self._kdf_times[lvl]-target)
-            )
-        else:
-            level=self.kdf_slider.value()
-
+            level=min(self._kdf_times,key=lambda lvl:abs(self._kdf_times[lvl]-target))
+        else:level=self.kdf_slider.value()
         self._kdf_save_running=True
         self.kdf_save_button.setEnabled(False)
         self.kdf_calibrate_button.setEnabled(False)
         self.status.showMessage(f"Saving KDF level {level}...")
         self.setWindowTitle("Password Manager (Saving...)")
-
-        threading.Thread(
-            target=self.save_kdf_worker,
-            args=(level,),
-            daemon=True
-        ).start()
-
+        threading.Thread(target=self.save_kdf_worker,args=(level,),daemon=True).start()
     def save_kdf_worker(self,level):
         global KDF_LEVEL
-
         try:
             data=load()
             KDF_LEVEL=level
             save(data)
-        except Exception as e:
-            self.save_error_signal.emit(str(e))
-        finally:
-            self.kdf_save_done_signal.emit()
-
+        except Exception as e:self.save_error_signal.emit(str(e))
+        finally:self.kdf_save_done_signal.emit()
     def kdf_save_finished(self):
         self._kdf_save_running=False
         self.kdf_save_button.setEnabled(True)
         self.kdf_calibrate_button.setEnabled(True)
         self.status.clearMessage()
         self.setWindowTitle("Password Manager")
-
     def _editor_commit_data(self,editor):
         index=self.view.currentIndex()
-        if index.isValid() and index.column()==self.model.TOTP_COL:
-            self.model.begin_totp_edit(index.row())
-
+        if index.isValid() and index.column()==self.model.TOTP_COL:self.model.begin_totp_edit(index.row())
     def _editor_closed(self,editor,hint):
         index=self.view.currentIndex()
-        if index.isValid() and index.column()==self.model.TOTP_COL:
-            self.model.end_totp_edit(index.row())
-
+        if index.isValid() and index.column()==self.model.TOTP_COL:self.model.end_totp_edit(index.row())
     def load_worker(self):
         data=load()
         self.on_loaded(data)
-
-        try:
-            save(data)
-        except Exception as e:
-            self.save_error_signal.emit(str(e))
-
+        try:save(data)
+        except Exception as e:self.save_error_signal.emit(str(e))
     def on_loaded(self,data):
         self.model.set_data(data)
         self._dirty=False
-
-        self.kdf_slider.setMinimum(0)
-        self.kdf_slider.setMaximum(50)
-        self.kdf_slider.setTickInterval(1)
-        self.kdf_slider.setValue(max(0,min(50,KDF_LEVEL)))
-
-        self.kdf_min_label.setText("0")
-        self.kdf_max_label.setText("50")
-        self.kdf_value.setText(f"Level {KDF_LEVEL}")
-
-    def on_click(self,index):
-        if index.column()==self.model.PASSWORD_COL:
-            self.model.toggle_password(index.row())
-        elif index.column()==self.model.TOTP_COL:
-            self.model.toggle_totp(index.row())
-
-    def mark_dirty(self):
-        self._dirty=True
-
-    def autosave_tick(self):
-        if (time.time()-LAST_ACTIVE)>90:
-            self.close()
-
-        if not self._dirty:
-            return
-
-        self._dirty=False
-
-        if self._save_running:
-            self._save_again=True
+        if self._kdf_times:
+            self.kdf_slider.setMinimum(0)
+            self.kdf_slider.setMaximum(3000)
+            self.kdf_slider.setTickInterval(100)
+            self.kdf_min_label.setText("0.00 s")
+            self.kdf_max_label.setText("30.00 s")
+            self.kdf_slider.setValue(0)
+            self.kdf_value_changed(0)
+            self.kdf_save_button.setEnabled(True)
         else:
-            self.start_save()
-
+            self.kdf_slider.setMinimum(0)
+            self.kdf_slider.setMaximum(50)
+            self.kdf_slider.setTickInterval(1)
+            self.kdf_slider.setValue(max(0,min(50,KDF_LEVEL)))
+            self.kdf_min_label.setText("0")
+            self.kdf_max_label.setText("50")
+            self.kdf_value.setText(f"Level {KDF_LEVEL}")
+    def on_click(self,index):
+        if index.column()==self.model.PASSWORD_COL:self.model.toggle_password(index.row())
+        elif index.column()==self.model.TOTP_COL:self.model.toggle_totp(index.row())
+    def mark_dirty(self):self._dirty=True
+    def autosave_tick(self):
+        if (time.time()-LAST_ACTIVE)>90:self.close()
+        if not self._dirty:return
+        self._dirty=False
+        if self._save_running:self._save_again=True
+        else:self.start_save()
     def start_save(self):
         self._save_running=True
         self.status.showMessage("Saving...")
         self.setWindowTitle("Password Manager (Saving...)")
         threading.Thread(target=self.save_worker,daemon=True).start()
-
     def save_worker(self):
-        try:
-            save(self.model.get_data())
-        except Exception as e:
-            self.save_error_signal.emit(str(e))
-        finally:
-            self.save_done()
-
+        try:save(self.model.get_data())
+        except Exception as e:self.save_error_signal.emit(str(e))
+        finally:self.save_done()
     def save_done(self):
         self._save_running=False
         self.status.clearMessage()
         self.setWindowTitle("Password Manager")
-
         if self._save_again:
             self._save_again=False
             self.start_save()
-
-    def show_save_error(self,error):
-        show_message(
-            self,
-            "Save Error",
-            f"Could not save your data:\n\n{error}"
-        )
-
+    def show_save_error(self,error):show_message(self,"Save Error",f"Could not save your data:\n\n{error}")
     def final_save(self,*args,**kwargs):
         self._save_running=True
-
-        try:
-            save(self.model.get_data())
-        finally:
-            self._save_running=False
-
+        try:save(self.model.get_data())
+        finally:self._save_running=False
     def closeEvent(self,event):
         threading.Thread(target=self.final_save).start()
         event.accept()
-
-
 window=TableEditor()
 window.resize(900,500)
 window.show()
 code=app.exec()
-
-while window._save_running:
-    time.sleep(1)
-
+while window._save_running:time.sleep(1)
 sys.exit(code)
