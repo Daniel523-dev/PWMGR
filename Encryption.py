@@ -8,6 +8,7 @@ from argon2.low_level import hash_secret_raw, Type
 from cryptography.hazmat.primitives import hashes
 from cryptography.x509.oid import NameOID
 import os, hashlib, hmac, ipaddress
+
 def kdf_fast(master_pw: bytes, salt: bytes) -> bytes:return hash_secret_raw(secret=master_pw, salt=salt, time_cost=2, memory_cost=32768, parallelism=2, hash_len=512, type=Type.ID)
 def kdf_slow(master_pw: bytes, salt: bytes) -> bytes:return hash_secret_raw(secret=master_pw, salt=salt, time_cost=13, memory_cost=524288, parallelism=1, hash_len=512, type=Type.ID)
 def encrypt(data: bytes, key: bytes) -> bytes:
