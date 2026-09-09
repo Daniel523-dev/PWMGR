@@ -557,13 +557,10 @@ class TableEditor(QMainWindow):
         self.session_timer = QTimer(self)
         self.session_timer.setSingleShot(True)
         self.session_timer.setInterval(SESSION_TIMEOUT_MS)
-        self.session_timer.timeout.connect(self._close)
+        self.session_timer.timeout.connect(self.close)
         self.session_timer.start()
 
         threading.Thread(target=self.load_worker,daemon=True).start()
-    def _close(self):
-        while self._kdf_calibrating:time.sleep(1)
-        self.close()
     def kdf_value_changed(self,value):
         if self._kdf_times:
             target=value/100
@@ -617,6 +614,11 @@ class TableEditor(QMainWindow):
         if reply!=QMessageBox.StandardButton.Ok:return
 
         self._kdf_calibrating=True
+
+        # Disable inactivity/session timeouts during calibration.
+        self.autosave_timer.stop()
+        self.session_timer.stop()
+
         self.kdf_calibrate_button.setEnabled(False)
         self.kdf_save_button.setEnabled(False)
         self.status.showMessage("Calibrating KDF...")
@@ -627,17 +629,6 @@ class TableEditor(QMainWindow):
             daemon=True
         ).start()
 
-    def calibrate_worker(self):
-        try:
-            times=calibrate_to_hardware()
-
-            with open(self._calibration_file,"w") as f:
-                json.dump(times,f)
-
-            self.kdf_calibrate_done_signal.emit(times)
-        except Exception as e:
-            self.save_error_signal.emit(str(e))
-            self.kdf_calibrate_done_signal.emit({})
     def calibration_finished(self,times):
         self._kdf_calibrating=False
 
@@ -659,6 +650,21 @@ class TableEditor(QMainWindow):
         self.kdf_calibrate_button.setEnabled(True)
         self.status.clearMessage()
         self.setWindowTitle("Password Manager")
+
+        # Restart inactivity/session timers after calibration.
+        self.autosave_timer.start()
+        self.session_timer.start()
+    def calibrate_worker(self):
+        try:
+            times=calibrate_to_hardware()
+
+            with open(self._calibration_file,"w") as f:
+                json.dump(times,f)
+
+            self.kdf_calibrate_done_signal.emit(times)
+        except Exception as e:
+            self.save_error_signal.emit(str(e))
+            self.kdf_calibrate_done_signal.emit({})
 
     def save_kdf_level(self):
         if self._kdf_save_running or self._kdf_calibrating:return
