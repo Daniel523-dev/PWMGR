@@ -1,4 +1,4 @@
-import Encryption, base64, os, pathlib, sys, json, util, csv, io, threading, pyotp, zstandard as zstd, time
+import Encryption, base64, os, pathlib, sys, json, util, csv, io, threading, pyotp, zstandard as zstd, time, traceback
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMainWindow, QTableView, QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QInputDialog, QHeaderView, QProgressBar, QStyledItemDelegate
 from PyQt6.QtCore import pyqtSignal, QAbstractTableModel, Qt, QModelIndex, QTimer, QMimeData
 from PyQt6.QtGui import QFont, QIcon
@@ -56,6 +56,7 @@ def load():
         salt=base64.b64decode(container["salt"])
         data=Encryption.decryptGCM(encrypted_data, Encryption.kdf_slow(util.str_to_bytes(MASTER_PW),salt))
     except:
+        traceback.print_exc()
         show_message(None,"INCORRECT PASSWORD","Failed to decrypt",True)
         EXIT("INCORRECT PASSWORD")
     try:data=zstd.decompress(data)
