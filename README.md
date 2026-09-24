@@ -40,7 +40,7 @@ Once the vault is unlocked, the main password manager window will open.
 
 ## Security & Cryptography
 
-* **Key Derivation**: Argon2id (`time_cost=13`, `memory_cost=524288` / ~512 MB, `parallelism=1`) derives the master key from the master password.
+* **Key Derivation**: Argon2id (`time_cost=13`, `memory_cost=524288` / ~512 MB, `parallelism=1`) derives the master key from the master password (kdf level may be adjusted in settings, default is 10).
 * **Key Normalization**: BLAKE3 is used to derive a AES key from the Argon2id-derived key, ensuring a consistent key length for AES-GCM.
 * **Encryption**: AES-GCM is used to encrypt the vault data with the derived single-use key.
 * **Integrity & Signatures**: Ed25519 signatures are used to provide cryptographic authenticity and integrity verification.
