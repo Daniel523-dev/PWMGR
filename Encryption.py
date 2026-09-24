@@ -87,78 +87,18 @@ def decryptGCM(encrypted: bytes, key: bytes) -> bytes:
     out.extend(cipher.finalize())
     return bytes(out)
 def generate_tls(cert_path, key_path, common_name="TLS Certificate", country=None, state=None, locality=None, organization=None, organizational_unit=None, email=None, valid_days=3650, san_ips=None, san_dns=None):
-    if os.path.exists(cert_path) and os.path.exists(key_path):
-        return
-
+    if os.path.exists(cert_path) and os.path.exists(key_path):return
     san_ips = [] if san_ips is None else san_ips
     san_dns = [] if san_dns is None else san_dns
-
     key = ec.generate_private_key(ec.SECP256R1())
-
-    attributes = [
-        NameAttribute(oid, value)
-        for oid, value in [
-            (NameOID.COMMON_NAME, common_name),
-            (NameOID.COUNTRY_NAME, country),
-            (NameOID.STATE_OR_PROVINCE_NAME, state),
-            (NameOID.LOCALITY_NAME, locality),
-            (NameOID.ORGANIZATION_NAME, organization),
-            (NameOID.ORGANIZATIONAL_UNIT_NAME, organizational_unit),
-            (NameOID.EMAIL_ADDRESS, email)
-        ]
-        if value
-    ]
-
+    attributes = [NameAttribute(oid, value) for oid, value in [(NameOID.COMMON_NAME, common_name), (NameOID.COUNTRY_NAME, country), (NameOID.STATE_OR_PROVINCE_NAME, state), (NameOID.LOCALITY_NAME, locality), (NameOID.ORGANIZATION_NAME, organization), (NameOID.ORGANIZATIONAL_UNIT_NAME, organizational_unit), (NameOID.EMAIL_ADDRESS, email)] if value]
     subject = Name(attributes)
-
-    san_entries = (
-        [ipaddress.IPAddress(ipaddress.ip_address(ip)) for ip in san_ips] +
-        [DNSName(dns) for dns in san_dns]
-    )
-
-    cert = (
-        CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(subject)
-        .public_key(key.public_key())
-        .serial_number(random_serial_number())
-        .not_valid_before(datetime.now(timezone.utc) - timedelta(days=1))
-        .not_valid_after(datetime.now(timezone.utc) + timedelta(days=valid_days))
-        .add_extension(
-            BasicConstraints(
-                ca=False,
-                path_length=None
-            ),
-            critical=True
-        )
-    )
-
-    if san_entries:
-        cert = cert.add_extension(
-            SubjectAlternativeName(san_entries),
-            critical=False
-        )
-
-    cert = cert.sign(
-        private_key=key,
-        algorithm=hashes.SHA256()
-    )
-
-    with open(key_path, "wb") as f:
-        f.write(
-            key.private_bytes(
-                Encoding.PEM,
-                PrivateFormat.PKCS8,
-                NoEncryption()
-            )
-        )
-
-    with open(cert_path, "wb") as f:
-        f.write(
-            cert.public_bytes(
-                Encoding.PEM
-            )
-        )
+    san_entries = ([ipaddress.IPAddress(ipaddress.ip_address(ip)) for ip in san_ips] + [DNSName(dns) for dns in san_dns])
+    cert = (CertificateBuilder().subject_name(subject).issuer_name(subject).public_key(key.public_key()).serial_number(random_serial_number()).not_valid_before(datetime.now(timezone.utc) - timedelta(days=1)).not_valid_after(datetime.now(timezone.utc) + timedelta(days=valid_days)).add_extension(BasicConstraints(ca=False,path_length=None),critical=True))
+    if san_entries:cert = cert.add_extension(SubjectAlternativeName(san_entries),critical=False)
+    cert = cert.sign(private_key=key,algorithm=hashes.SHA256())
+    with open(key_path, "wb") as f:f.write(key.private_bytes(Encoding.PEM,PrivateFormat.PKCS8,NoEncryption()))
+    with open(cert_path, "wb") as f:f.write(cert.public_bytes(Encoding.PEM))
 def gen_x25519() -> tuple[bytes, bytes]:
     private_key = x25519.X25519PrivateKey.generate()
     return (private_key.private_bytes(encoding=Encoding.Raw,format=PrivateFormat.Raw,encryption_algorithm=NoEncryption()),private_key.public_key().public_bytes(encoding=Encoding.Raw,format=PublicFormat.Raw))
