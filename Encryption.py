@@ -8,6 +8,7 @@ from argon2.low_level import hash_secret_raw, Type
 from cryptography.hazmat.primitives import hashes
 from cryptography.x509.oid import NameOID
 import os, hashlib, hmac, ipaddress
+# Note: I use this program for dozens of different projects, so many of these functions are unused
 KDF_LEVELS={0:[2,32768,4],1:[3,81920,4],2:[4,131072,3],3:[5,180224,3],4:[6,229376,3],5:[8,278528,2],6:[9,327680,2],7:[10,376832,2],8:[11,425984,2],9:[12,475136,1],10:[13,524288,1]}
 def kdf_level(LEVEL):
     if LEVEL in KDF_LEVELS:return KDF_LEVELS[LEVEL]
