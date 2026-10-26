@@ -9,9 +9,7 @@ def show_message(parent, title, message, error=False):
     else:QMessageBox.warning(parent, title, message)
 def EXIT(txt=''):
     if txt:print(txt, flush=True)
-    app_instance = QApplication.instance()
-    if app_instance:app_instance.quit()
-    else:sys.exit(0)
+    os._exit(1)
 file_path, _ = QFileDialog.getSaveFileName(None, "Create Password Manager File", os.path.expanduser('~/'), "Password Manager Files (*.pwmgr1)", options=QFileDialog.Option.DontConfirmOverwrite)
 if not os.path.exists(os.path.dirname(file_path)):EXIT("Canceled")
 app.setFont(QFont("Arial", 10))
