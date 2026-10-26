@@ -40,7 +40,7 @@ jobs:
       run: |
         pyinstaller `
           --noconfirm `
-          --onefile `
+          --onedir `
           --windowed `
           --name="PWMGR" `
           --icon="icon.ico" `
@@ -53,7 +53,7 @@ jobs:
       run: |
         pyinstaller \
           --noconfirm \
-          --onefile \
+          --onedir \
           --windowed \
           --name="PWMGR" \
           --add-data "icon.png:." \
@@ -64,4 +64,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: PWMGR-${{ runner.os }}-build
-        path: dist/
+        path: dist/PWMGR/
