@@ -8,6 +8,7 @@ def show_message(parent, title, message, error=False):
     if error:QMessageBox.critical(parent, title, message)
     else:QMessageBox.warning(parent, title, message)
 def EXIT(txt=''):
+    app.close()
     print(txt, flush=True)
     os._exit(1)
 file_path, _ = QFileDialog.getSaveFileName(None, "Create Password Manager File", os.path.expanduser('~/'), "Password Manager Files (*.pwmgr1)", options=QFileDialog.Option.DontConfirmOverwrite)
